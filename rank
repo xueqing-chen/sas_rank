@@ -1,0 +1,64 @@
+
+
+%macro rank(InputVar_List= , table=, output_rank_var=);
+%LET i =1;
+%DO %WHILE (%SCAN(&InputVar_List, &i) NE );
+%put %SCAN(&InputVar_List, &i);
+		PROC RANK DATA=&table(KEEP=&&InputVar&i) GROUPS=20 OUT=temp_ds_bin;
+				VAR &&InputVar&i;
+				RANKS Bin;
+		RUN;
+
+		DATA temp_ds_bin;
+				SET temp_ds_bin;
+				Bin=Bin+1;									
+		RUN;
+
+					
+		*get the range for each of the bin;
+		PROC SQL NOPRINT;
+		CREATE TABLE temp_bin_limits AS
+		SELECT  Bin, MIN(&&InputVar&i) AS Bin_LowerLimit, MAX(&&InputVar&i) AS Bin_UpperLimit 
+		FROM temp_ds_bin
+		GROUP BY Bin
+		ORDER BY Bin;	
+									
+		QUIT;
+
+		*calculate the 'Event' and 'NonEvent' count for each of the bin;
+		PROC SORT DATA=temp_ds_bin(KEEP= Bin) OUT=temp_bin_smry;
+		BY Bin;
+		RUN;
+
+		DATA temp_bin_smry;
+		length varname $100.;
+		SET temp_bin_smry;
+	    varname="&&InputVar&i.";
+		BY Bin;
+
+		*initialize;
+		IF FIRST.Bin THEN DO;
+		Total_Cnt = .;						
+		END;
+		Total_Cnt +1;
+		IF LAST.Bin;
+		RUN;			
+
+		*merge the min/max with the cross tabulation;					
+		DATA temp_bin_smry;
+		MERGE temp_bin_smry temp_bin_limits;
+		BY Bin;
+		RUN;
+  
+							%if %SYSFUNC(exist(&output_rank_var))=1 %then %do;
+							proc append base=&output_rank_var  data=temp_bin_smry force; run; 
+							%end;
+							%else %do;
+							data &output_rank_var;
+							set temp_bin_smry;
+							run;
+							%end;
+%LET i = %EVAL(&i+ 1);		
+%END;
+
+%mend;
